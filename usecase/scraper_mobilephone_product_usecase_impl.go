@@ -5,11 +5,13 @@ import (
 	"github.com/meifanora/web-scaper-go/config"
 	"github.com/meifanora/web-scaper-go/entity"
 	"strconv"
+	"sync"
 )
 
 var (
+	url             = "https://www.tokopedia.com/p/handphone-tablet/handphone" // URL to scrape
 	maxProducts     = 100
-	numberOfThreads = 5
+	numberOfThreads = 10
 )
 
 type ScraperMobilePhoneProductUseCaseImpl struct {
@@ -19,43 +21,53 @@ type ScraperMobilePhoneProductUseCaseImpl struct {
 
 func NewScraperMobilePhoneProductUseCase(configuration config.Config) ScraperMobilePhoneProductUseCase {
 	return &ScraperMobilePhoneProductUseCaseImpl{
-		colly: colly.NewCollector(
-			colly.Async(true),
-		),
+		colly:         colly.NewCollector(),
 		configuration: configuration,
 	}
 }
 
 func (c ScraperMobilePhoneProductUseCaseImpl) ScrapeMobilePhoneProducts() ([]entity.Product, error) {
 	var products []entity.Product
-	// URL to scrape
-	url := "https://www.tokopedia.com/p/handphone-tablet/handphone"
-
-	c.colly.Limit(&colly.LimitRule{
-		// limit the parallel requests to 4 request at a time
-		Parallelism: 2,
-	})
 
 	// Create a wait group to wait for all goroutines to finish
-	//var wg sync.WaitGroup
+	var wg sync.WaitGroup
+
+	// Create a buffered channel to limit the number of simultaneous requests
+	ch := make(chan entity.Product, numberOfThreads)
 
 	// setting a valid User-Agent header
 	c.colly.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
 
-	// Set up callback to extract product information
+	// Set up the collector to extract product information
 	c.colly.OnHTML(".e1nlzfl2", func(e *colly.HTMLElement) {
-		product := extractProduct(e)
-		products = append(products, product)
+		ch <- extractProduct(e)
 	})
 
-	for i := 1; i <= 5; i++ {
-		c.colly.Visit(url + "?page=" + strconv.Itoa(i))
+	// Start the scraping process
+	for i := 1; i <= numberOfThreads; i++ {
+		wg.Add(1) // // Increment the wait group counter
+		go c.scrapeWorker(i, &wg)
 	}
 
-	// wait for tColly to visit all pages
-	c.colly.Wait()
+	// Close the result channel when all workers are done
+	go func() {
+		wg.Wait() // Wait for all workers to finish
+		close(ch)
+	}()
+
+	for product := range ch {
+		products = append(products, product)
+		if len(products) >= maxProducts {
+			break
+		}
+	}
 
 	return products, nil
+}
+
+func (c ScraperMobilePhoneProductUseCaseImpl) scrapeWorker(i int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	c.colly.Visit(url + "?page=" + strconv.Itoa(i))
 }
 
 func extractProduct(e *colly.HTMLElement) entity.Product {

@@ -37,7 +37,7 @@ func (c CSVWriteUseCaseImpl) WriteMobilePhoneProductCSV(products []entity.Produc
 			product.Merchant,
 		}
 
-		if err := writer.Write(record); err != nil {
+		if err = writer.Write(record); err != nil {
 			return err
 		}
 	}
