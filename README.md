@@ -1,4 +1,5 @@
 # web-scaper-go
+Web scraping is like having a robot visit a website and collect useful information from it.
 
 ## How to Run Application
 **1. Load environment variables**
